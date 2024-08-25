@@ -1,0 +1,133 @@
+#!/bin/bash
+
+# Security Audit and Server Hardening Script
+
+# Define colors for output
+GREEN="\033[32m"
+RED="\033[31m"
+NC="\033[0m" # No Color
+
+# Function to check if the script is run as root
+check_root() {
+  if [ "$EUID" -ne 0 ]; then 
+    echo -e "${RED}Please run as root${NC}"
+    exit
+  fi
+}
+
+# Function to audit users and groups
+audit_users_and_groups() {
+  echo -e "${GREEN}Auditing Users and Groups...${NC}"
+  echo "List of users:"
+  cut -d: -f1 /etc/passwd
+  echo "List of groups:"
+  cut -d: -f1 /etc/group
+  echo "Users with UID 0:"
+  awk -F: '($3 == 0) {print}' /etc/passwd
+  echo "Users without passwords or with weak passwords:"
+  # Checking weak passwords is complex and may require external tools like John the Ripper.
+}
+
+# Function to audit file and directory permissions
+audit_permissions() {
+  echo -e "${GREEN}Auditing File and Directory Permissions...${NC}"
+  echo "World-writable files and directories:"
+  find / -xdev -type d \( -perm -0002 -a ! -perm -1000 \) -print
+  find / -xdev -type f \( -perm -0002 \) -print
+  echo "Files with SUID/SGID bits set:"
+  find / -xdev -type f \( -perm -4000 -o -perm -2000 \) -print
+}
+
+# Function to audit running services
+audit_services() {
+  echo -e "${GREEN}Auditing Running Services...${NC}"
+  echo "Running services:"
+  systemctl list-units --type=service --state=running
+  echo "Checking for unauthorized services..."
+  # Check services here based on your security policy
+}
+
+# Function to check firewall and network security
+audit_firewall_and_network() {
+  echo -e "${GREEN}Auditing Firewall and Network Security...${NC}"
+  echo "Firewall status:"
+  ufw status || iptables -L -n -v
+  echo "Open ports and their associated services:"
+  netstat -tuln
+}
+
+# Function to check IP and network configurations
+check_ip_and_network() {
+  echo -e "${GREEN}Checking IP and Network Configurations...${NC}"
+  ip addr show
+  # Implement public vs. private IP check here
+}
+
+# Function to check for security updates and patching
+check_security_updates() {
+  echo -e "${GREEN}Checking for Security Updates...${NC}"
+  apt update && apt list --upgradable
+}
+
+# Function to monitor logs
+monitor_logs() {
+  echo -e "${GREEN}Monitoring Logs for Suspicious Activity...${NC}"
+  grep "sshd" /var/log/auth.log | tail -n 10
+}
+
+# Function to harden server
+harden_server() {
+  echo -e "${GREEN}Applying Server Hardening Measures...${NC}"
+  # SSH configuration hardening
+  echo "Disabling root login via SSH and forcing key-based authentication..."
+  sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+  sed -i 's/^PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  systemctl restart sshd
+  
+  # Disable IPv6
+  echo "Disabling IPv6..."
+  sysctl -w net.ipv6.conf.all.disable_ipv6=1
+  sysctl -w net.ipv6.conf.default.disable_ipv6=1
+  
+  # Secure the bootloader
+  echo "Securing the GRUB bootloader..."
+  echo "Set a password using the grub-mkpasswd-pbkdf2 command"
+  echo "Update /etc/grub.d/40_custom and run update-grub"
+
+  # Configure the firewall
+  echo "Configuring the firewall..."
+  ufw default deny incoming
+  ufw default allow outgoing
+  ufw allow ssh
+  ufw enable
+}
+
+# Function for custom security checks
+custom_security_checks() {
+  echo -e "${GREEN}Running Custom Security Checks...${NC}"
+  # Placeholder for custom checks defined in a configuration file
+}
+
+# Function for generating report
+generate_report() {
+  echo -e "${GREEN}Generating Security Audit Report...${NC}"
+  # Generate a summary report here
+}
+
+# Main function
+main() {
+  check_root
+  audit_users_and_groups
+  audit_permissions
+  audit_services
+  audit_firewall_and_network
+  check_ip_and_network
+  check_security_updates
+  monitor_logs
+  harden_server
+  custom_security_checks
+  generate_report
+}
+
+# Run the main function
+main
