@@ -22,10 +22,8 @@ audit_users_and_groups() {
   cut -d: -f1 /etc/passwd
   echo "List of groups:"
   cut -d: -f1 /etc/group
-  echo "Users with UID 0:"
-  awk -F: '($3 == 0) {print}' /etc/passwd
-  echo "Users without passwords or with weak passwords:"
-  # Checking weak passwords is complex and may require external tools like John the Ripper.
+  echo "Users with UID 0 (root privileges):"
+  awk -F: '($3 == 0) {print $1}' /etc/passwd
 }
 
 # Function to audit file and directory permissions
@@ -43,15 +41,21 @@ audit_services() {
   echo -e "${GREEN}Auditing Running Services...${NC}"
   echo "Running services:"
   systemctl list-units --type=service --state=running
-  echo "Checking for unauthorized services..."
-  # Check services here based on your security policy
+  echo "Checking for unauthorized services (customize this list)..."
+  for service in sshd httpd crond; do
+    if systemctl is-active --quiet $service; then
+      echo "$service is running"
+    else
+      echo "$service is not running"
+    fi
+  done
 }
 
-# Function to check firewall and network security
+# Function to audit firewall and network security
 audit_firewall_and_network() {
   echo -e "${GREEN}Auditing Firewall and Network Security...${NC}"
-  echo "Firewall status:"
-  ufw status || iptables -L -n -v
+  echo "Firewall status (iptables):"
+  iptables -L -n -v
   echo "Open ports and their associated services:"
   netstat -tuln
 }
@@ -60,19 +64,22 @@ audit_firewall_and_network() {
 check_ip_and_network() {
   echo -e "${GREEN}Checking IP and Network Configurations...${NC}"
   ip addr show
-  # Implement public vs. private IP check here
+  echo -e "\nPublic IP address (if any):"
+  curl -s http://checkip.amazonaws.com || echo "Unable to fetch public IP"
 }
 
 # Function to check for security updates and patching
 check_security_updates() {
   echo -e "${GREEN}Checking for Security Updates...${NC}"
-  apt update && apt list --upgradable
+  yum check-update
+  echo -e "\nListing security updates:"
+  yum updateinfo list security all
 }
 
 # Function to monitor logs
 monitor_logs() {
   echo -e "${GREEN}Monitoring Logs for Suspicious Activity...${NC}"
-  grep "sshd" /var/log/auth.log | tail -n 10
+  grep "sshd" /var/log/secure | tail -n 10
 }
 
 # Function to harden server
@@ -83,7 +90,7 @@ harden_server() {
   sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
   sed -i 's/^PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
   systemctl restart sshd
-  
+
   # Disable IPv6
   echo "Disabling IPv6..."
   sysctl -w net.ipv6.conf.all.disable_ipv6=1
@@ -94,24 +101,49 @@ harden_server() {
   echo "Set a password using the grub-mkpasswd-pbkdf2 command"
   echo "Update /etc/grub.d/40_custom and run update-grub"
 
-  # Configure the firewall
-  echo "Configuring the firewall..."
-  ufw default deny incoming
-  ufw default allow outgoing
-  ufw allow ssh
-  ufw enable
+  # Configure the firewall using iptables
+  echo "Configuring the firewall with iptables..."
+  iptables -P INPUT DROP
+  iptables -P FORWARD DROP
+  iptables -P OUTPUT ACCEPT
+  iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+  iptables -A INPUT -i lo -j ACCEPT
+  service iptables save
 }
 
 # Function for custom security checks
 custom_security_checks() {
   echo -e "${GREEN}Running Custom Security Checks...${NC}"
-  # Placeholder for custom checks defined in a configuration file
+  
+  # Check password policies
+  echo -e "\nPassword policies (min/max days, warn age):"
+  grep -E '^PASS_MAX_DAYS|^PASS_MIN_DAYS|^PASS_WARN_AGE' /etc/login.defs
+  
+  # Check permissions on sensitive files
+  echo -e "\nChecking permissions on sensitive files:"
+  stat /etc/passwd /etc/shadow
+  
+  # Check for any empty passwords
+  echo -e "\nChecking for users with empty passwords:"
+  awk -F: '($2 == "") {print $1}' /etc/shadow
 }
 
 # Function for generating report
 generate_report() {
   echo -e "${GREEN}Generating Security Audit Report...${NC}"
-  # Generate a summary report here
+  echo "Summary of the security audit has been saved to /var/log/security_audit_report"
+  # Save to a report file
+  {
+    echo "Security Audit Report - $(date)"
+    audit_users_and_groups
+    audit_permissions
+    audit_services
+    audit_firewall_and_network
+    check_ip_and_network
+    check_security_updates
+    custom_security_checks
+  } > /var/log/security_audit_report
 }
 
 # Main function
